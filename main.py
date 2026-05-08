@@ -91,6 +91,8 @@ OLED_CS_GPIO = board.D16
 
 CLOSED_DISTANCE = 0;
 
+PICO_IP = "192.168.1.171"
+
 program = True
 
 temp = 0;
@@ -204,8 +206,7 @@ def task_measure_distance():
         time.sleep(cooldown)
 
 def task_send_temperature():
-    while program:
-        PICO_IP = "192.168.1.171" 
+    while program: 
         url = f"http://{PICO_IP}/?temp={temp}"
         requests.get(url, timeout=5)
         time.sleep(cooldown)
