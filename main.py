@@ -62,6 +62,12 @@ def send_warning(product):
     message = f"{product.type} expires in {(product.date - datetime.date.now()).days}"
     requests.post(f"https://ntfy.sh/{topic}", data=message.encode('utf-8'))
     product.warned = True
+    requests.post(api + "warned_true",
+    json={
+        "name": product.name,
+        "expiration_date": product.expiration_date
+    }
+)
 
 def product_expire(product):
     topic = "smart_fridge"
