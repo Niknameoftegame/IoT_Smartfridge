@@ -102,7 +102,7 @@ OLED_DC_GPIO = board.D24
 OLED_RESET_GPIO = board.D25
 OLED_CS_GPIO = board.D16
 
-CLOSED_DISTANCE = 0;
+CLOSED_DISTANCE = 15;
 MAX_TIME_OPEN = 30
 
 PICO_IP = "192.168.1.171"
@@ -246,5 +246,6 @@ except KeyboardInterrupt:
     t_read_temp.join()
     t_measure_distance.join()
     t_send_temperature.join()
+    t_door_status.join()
     led.value = False;
 
