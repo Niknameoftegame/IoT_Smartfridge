@@ -106,20 +106,6 @@ products = []
 #API URL
 api = "https://iot-api.vercel.app/"
 
-# MQTT data
-CHANNEL_ID = "3289179"
-MQTT_CLIENT_ID = "ByEtHxUfJhIhFzgEGiEDEBM"
-MQTT_USERNAME = "ByEtHxUfJhIhFzgEGiEDEBM"
-MQTT_PASSWORD = "eqo1ov1BaFHWSAcDg7HRmpmW"
-MQTT_BROKER = "mqtt3.thingspeak.com"
-MQTT_PORT = 1883
-TOPIC = f"channels/{CHANNEL_ID}/publish"
-
-# MQTT Setup
-client = mqtt.Client(client_id=MQTT_CLIENT_ID)
-client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-client.connect(MQTT_BROKER, MQTT_PORT, 60)
-
 #BMP280 Setup
 
 i2c = busio.I2C(board.SCL, board.SDA)
