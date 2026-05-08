@@ -83,7 +83,11 @@ LED_GPIO = board.D22
 COIL1_GPIO = board.D17
 COIL2_GPIO = board.D17
 COIL3_GPIO = board.D17
-COIL4_GPIO = board.D17
+COIL4_GPIO = board.D1
+
+OLED_DC_GPIO = board.D24
+OLED_RESET_GPIO = board.D25
+OLED_CS_GPIO = board.D16
 
 CLOSED_DISTANCE = 0;
 
@@ -98,7 +102,7 @@ cooldown = 5;
 products = []
 
 #API URL
-api = "http://127.0.0.1:8000/"
+api = "https://iot-api.vercel.app/"
 
 # MQTT data
 CHANNEL_ID = "3289179"
@@ -149,10 +153,10 @@ GPIO.setup(ECHO, GPIO.IN)
 
 spi = SPI(clock=board.SCK, MOSI=board.MOSI)
 
-dc = digitalio.DigitalInOut(board.D24)
-reset = digitalio.DigitalInOut(board.D25)
+dc = digitalio.DigitalInOut(OLED_DC_GPIO)
+reset = digitalio.DigitalInOut(OLED_RESET_GPIO)
 
-cs = digitalio.DigitalInOut(board.D16)  # dummy CS
+cs = digitalio.DigitalInOut(OLED_CS_GPIO)  # dummy CS
 
 oled = adafruit_ssd1306.SSD1306_SPI(128, 64, spi, dc, reset, cs)
 
@@ -173,6 +177,7 @@ def task_read_temp():
     while program:
         global temp
         temp = bmp280.temperature
+        time.sleep(cooldown)
 
 def task_measure_distance():
     global distance
@@ -198,13 +203,22 @@ def task_measure_distance():
         distance = pulse_duration * 17000  # Convert to cm
         time.sleep(cooldown)
 
+def task_send_temperature():
+    while program:
+        PICO_IP = "192.168.1.171" 
+        url = f"http://{PICO_IP}/?temp={temp}"
+        requests.get(url, timeout=5)
+        time.sleep(cooldown)
+
 #Initialize threads
 t_read_temp = threading.Thread(target=task_read_temp, daemon=True)
 t_measure_distance = threading.Thread(target=task_measure_distance, daemon=True)
+t_send_temperature = threading.Thread(target=task_send_temperature, daemon=True)
 
 #Start threads
 t_read_temp.start()
 t_measure_distance.start()
+t_send_temperature.start()
 
 #Main program
 try:
@@ -214,9 +228,13 @@ try:
                 product_expire()
             elif abs(product.date - datetime.date.today()) <= (datetime.timedelta(days=days_before_warning)) and product.warned is False:
                 send_warning(product)
+        OLED_Reset()
+        OLED_ShowTemperature()
+        OLED_Update()
         time.sleep(cooldown)
 except KeyboardInterrupt:
     t_read_temp.join()
     t_measure_distance.join()
+    t_send_temperature.join()
     led.value = False;
 
