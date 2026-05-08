@@ -1,1 +1,4 @@
-.env
+.idea
+IoTAPI/.env
+IoTAPI/.vercel
+IoTAPI/.venv
