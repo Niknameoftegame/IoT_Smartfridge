@@ -3,18 +3,19 @@ import adafruit_bmp280
 import paho.mqtt.client as mqtt
 import threading
 import busio
+from busio import SPI
 import time
 import digitalio
 import requests
 import RPi.GPIO as GPIO
 import datetime
+import date
 import adafruit_ssd1306
-
 from PIL import Image, ImageDraw, ImageFont
 
 class Product():
-    date: datetime
-    type: str
+    expiration_date: date
+    name: str
     warned: bool
 
 def rotate(coil1,coil2):
@@ -30,27 +31,27 @@ def rotate(coil1, coil2, coil3, coil4):
     rotate(coil3,coil4)
     rotate(coil4,coil1)
 
-def load_products():
-    products = requests.get(api + "load-products")
+def get_content():
+    products = requests.get(api + "get_content")
     for product in products:
-        product = Product(product["date"], product["type"], product["warned"])
+        product = Product(product["expiration_date"], product["name"], product["warned"])
         products.append(product)
 
-def add_product(date, type, warned):
+def insert_content(date, type, warned):
     product = Product(date, type, warned)
 
     product_dict = {
-        "date": date,
-        "type": type,
+        "expiration_date": date,
+        "name": type,
         "warned": warned
     }
 
     products.append(product) # ADD TO PROGRAM MEMORY
-    requests.post(api + "add-product", product_dict) # ADD TO DB USING API
+    requests.post(api + "insert_content", json=product_dict) # ADD TO DB USING API
 
 def remove_product(product):
     products.remove(product)
-    requests.post(api + "remove-product", product) # REMOVE FROM DB
+    requests.post(api + "remove_content", product) # REMOVE FROM DB
 
 def close_door():
     while distance > CLOSED_DISTANCE:
@@ -58,24 +59,20 @@ def close_door():
 
 def send_warning(product):
     topic = "smart_fridge"
-    message = "Patrick Dielens is vervallen!"
+    message = f"{product.type} expires in {(product.date - datetime.date.now()).days}"
     requests.post(f"https://ntfy.sh/{topic}", data=message.encode('utf-8'))
     product.warned = True
 
-def send_warning():
-    topic = "smart_fridge"
-    message = "Patrick Dielens is vervallen!"
-    requests.post(f"https://ntfy.sh/{topic}", data=message.encode('utf-8'))
-
 def product_expire(product):
-    #TODO Send message
-    print ("")
+    topic = "smart_fridge"
+    message = f"ALERT: {product.type} has expired!"
+    requests.post(f"https://ntfy.sh/{topic}", data=message.encode('utf-8'))
 
 def OLED_Reset():
     oled.fill(0)
     oled.show()
 
-def OLED_ShowTemperatures():
+def OLED_ShowTemperature():
     draw.text((10, 20), f"{temp}°C", font=font, fill=255)
 
 def OLED_Update():
@@ -211,13 +208,11 @@ t_measure_distance.start()
 
 #Main program
 try:
-    send_warning();
     while program:
-        send_warning();
         for product in products:
-            if product.date < datetime.datetime.now:
-                product_expire
-            elif abs(product.date - datetime.datetime.now) <= (timedelta(days=days_before_warning)):
+            if product.date < datetime.date.today():
+                product_expire()
+            elif abs(product.date - datetime.date.today()) <= (datetime.timedelta(days=days_before_warning)) and product.warned is False:
                 send_warning(product)
         time.sleep(cooldown)
 except KeyboardInterrupt:
