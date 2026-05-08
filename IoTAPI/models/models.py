@@ -4,5 +4,4 @@ from datetime import date
 class Content(BaseModel):
     expiration_date: date
     name: str
-    warned: bool
 
