@@ -43,6 +43,7 @@ def remove_product(product):
 def close_door():
     while distance > CLOSED_DISTANCE:
         Motor.value = True
+        time.sleep(0.05)
     Motor.value = False
 
 def send_warning(product):
@@ -80,6 +81,15 @@ def count_door_open():
         seconds += 1
     close_door()
 
+def on_connect(client, userdata, flags, rc):
+    print("Connected to MQTT")
+    client.subscribe(TOPIC_COMMAND)
+
+def on_message(client, userdata, msg):
+    command = msg.payload.decode()
+    if command == "close":
+        close_door()
+
 LED_GPIO = board.D22
 MOTOR_GPIO = board.D21
 
@@ -91,6 +101,16 @@ CLOSED_DISTANCE = 15;
 MAX_TIME_OPEN = 30
 
 PICO_IP = "192.168.1.171"
+
+BROKER = "broker.hivemq.com"
+PORT = 1883
+TOPIC_COMMAND = "smart_fridge/door"
+
+client = mqtt.Client()
+client.on_connect = on_connect
+client.on_message = on_message
+
+client.connect(BROKER, PORT, 60)
 
 program = True
 
@@ -207,6 +227,7 @@ t_read_temp.start()
 t_measure_distance.start()
 t_send_temperature.start()
 t_door_status.start()
+client.loop_start()
 
 #Main program
 try:
