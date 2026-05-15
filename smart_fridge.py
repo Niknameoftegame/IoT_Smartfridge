@@ -163,13 +163,6 @@ def close_door():
 def publish_door_status(open: bool):
     client.publish(TOPIC_DOOR_STATUS, "open" if open else "closed")
 
-def count_door_open():
-    seconds = 0
-    while seconds < MAX_TIME_OPEN:
-        time.sleep(1)
-        seconds += 1
-    close_door()
-
 # =====================================================
 # PRODUCT / API FUNCTIES
 # =====================================================
@@ -276,11 +269,13 @@ def task_measure_distance():
         time.sleep(distance_cooldown)
 
 def task_door_status():
+    '''Waits for hardcoded time to have passed beforer closing the door (if not already closed)'''
     seconds = 0
-    while seconds < MAX_TIME_OPEN:
+    while seconds < MAX_TIME_OPEN and distance > CLOSED_DISTANCE:
         time.sleep(1)
         seconds += 1
-    close_door()
+    if distance > CLOSED_DISTANCE:
+        close_door()
 
 #Old code below for debugging if function doesn't work
 #    while program:
