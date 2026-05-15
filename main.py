@@ -46,6 +46,7 @@ def close_door():
         time.sleep(0.05)
     Motor.value = False
 
+
 def send_warning(product):
     topic = "smart_fridge"
     message = f"{product.type} expires in {(product.date - datetime.date.now()).days}"
@@ -71,8 +72,10 @@ def OLED_ShowTemperature():
     draw.text((10, 20), f"{temp}°C", font=font, fill=255)
 
 def OLED_Update():
+    OLED_Reset()
     oled.image(image)
     oled.show()
+
 
 def count_door_open():
     seconds = 0
@@ -141,12 +144,12 @@ Motor.direction = digitalio.Direction.OUTPUT
 
 
 # Ultrasonic sensor setup
-TRIG = 16  # GPIO pin connected to TRIG
-ECHO = 20  # GPIO pin connected to ECHO
+trig = digitalio.DigitalInOut(board.D16)
+trig.direction = digitalio.Direction.OUTPUT
+trig.value = False
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(TRIG, GPIO.OUT)
-GPIO.setup(ECHO, GPIO.IN)
+echo = digitalio.DigitalInOut(board.D20)
+echo.direction = digitalio.Direction.INPUT
 
 #OLED Setup
 
@@ -181,32 +184,29 @@ def task_read_temp():
 def task_measure_distance():
     global distance
     while program:
-        """Measures the distance in cm using the HC-SR04 sensor."""
-        # Ensure TRIG is low
-        GPIO.output(TRIG, False)
+        trig.value = False
         time.sleep(0.1)
-        # Send 10us pulse to TRIG
-        GPIO.output(TRIG, True)
+        trig.value = True
         time.sleep(0.00001)
-        GPIO.output(TRIG, False)
+        trig.value = False
 
-        # Wait for ECHO start
-        while GPIO.input(ECHO) == 0:
-           pulse_start = time.time()
+        # Wacht tot ECHO hoog gaat
+        while echo.value == False:
+            pulse_start = time.time()
 
-        # Wait for ECHO end
-        while GPIO.input(ECHO) == 1:
+        # Wacht tot ECHO laag gaat
+        while echo.value == True:
             pulse_end = time.time()
 
         pulse_duration = pulse_end - pulse_start
-        distance = pulse_duration * 17000  # Convert to cm
+        distance = pulse_duration * 17000
         time.sleep(distance_cooldown)
 
-def task_send_temperature():
-    while program: 
-        url = f"http://{PICO_IP}/?temp={temp}"
-        requests.get(url, timeout=5)
-        time.sleep(cooldown)
+#def task_send_temperature():
+ #   while program:
+  #      url = f"http://{PICO_IP}/?temp={temp}"
+   #     requests.get(url, timeout=5)
+    #    time.sleep(cooldown)
 
 def task_door_status():
     """Checks distance variable to see when door is open"""
@@ -219,13 +219,13 @@ def task_door_status():
 #Initialize threads
 t_read_temp = threading.Thread(target=task_read_temp, daemon=True)
 t_measure_distance = threading.Thread(target=task_measure_distance, daemon=True)
-t_send_temperature = threading.Thread(target=task_send_temperature, daemon=True)
+#t_send_temperature = threading.Thread(target=task_send_temperature, daemon=True)
 t_door_status  = threading.Thread(target=task_door_status, daemon=True)
 
 #Start threads
 t_read_temp.start()
 t_measure_distance.start()
-t_send_temperature.start()
+#t_send_temperature.start()
 t_door_status.start()
 client.loop_start()
 
@@ -245,7 +245,7 @@ try:
 except KeyboardInterrupt:
     t_read_temp.join()
     t_measure_distance.join()
-    t_send_temperature.join()
+    #t_send_temperature.join()
     t_door_status.join()
     led.value = False;
 
