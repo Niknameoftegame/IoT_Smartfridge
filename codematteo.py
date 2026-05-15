@@ -47,17 +47,17 @@ def oled_show(l1="", l2="", l3=""):
 # BUTTONS (UIT 2e CODE)
 # =====================================================
 
-btn_close = digitalio.DigitalInOut(board.D13)
+btn_close = digitalio.DigitalInOut(board.D26)
 btn_close.direction = digitalio.Direction.INPUT
 btn_close.pull = digitalio.Pull.UP
 
-btn_open = digitalio.DigitalInOut(board.D6)
+btn_open = digitalio.DigitalInOut(board.D19)
 btn_open.direction = digitalio.Direction.INPUT
 btn_open.pull = digitalio.Pull.UP
 
 
 def wait_button():
-    oled_show("IN or OUT?", "GPIO13 = IN", "GPIO6 = OUT")
+    oled_show("IN or OUT?", "GPIO26 = IN", "GPIO19 = OUT")
 
     while True:
         if not btn_close.value:
