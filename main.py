@@ -65,14 +65,14 @@ def product_expire(product):
     requests.post(f"https://ntfy.sh/{topic}", data=message.encode('utf-8'))
 
 def OLED_Reset():
+    draw.rectangle((0, 0, 128, 64), outline=0, fill=0)
     oled.fill(0)
     oled.show()
 
 def OLED_ShowTemperature():
-    draw.text((10, 20), f"{temp}°C", font=font, fill=255)
+    draw.text((10, 20), f"{round(temp, 2)}°C", font=font, fill=255)
 
 def OLED_Update():
-    OLED_Reset()
     oled.image(image)
     oled.show()
 
@@ -98,7 +98,7 @@ MOTOR_GPIO = board.D21
 
 OLED_DC_GPIO = board.D24
 OLED_RESET_GPIO = board.D25
-OLED_CS_GPIO = board.D16
+OLED_CS_GPIO = board.D5
 
 CLOSED_DISTANCE = 15;
 MAX_TIME_OPEN = 30
