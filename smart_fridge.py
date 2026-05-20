@@ -44,17 +44,17 @@ BTN_OUT_GPIO    = board.D26   # knop voor "OUT"
 # CONSTANTEN
 # =====================================================
 
-CLOSED_DISTANCE     = 13.6
+CLOSED_DISTANCE     = 14
 MAX_TIME_OPEN       = 30
-PICO_IP             = "192.168.1.171"
 BROKER              = "broker.hivemq.com"
 PORT                = 1883
 TOPIC_COMMAND       = "smart_fridge/door"
+TOPIC_DOOR_STATUS   = "smart_fridge/door_status"
+TOPIC_TEMPERATURE = "smart_fridge_2026/senne_lode_xander_matteo/temperatuur"
 api                 = "https://iot-api.vercel.app/"
 days_before_warning = 3
 cooldown            = 5
 distance_cooldown   = 0.5
-TOPIC_DOOR_STATUS   = "smart_fridge/door_status"
 QR_COOLDOWN_SECS    = 10   # seconds a scanned code stays blocked
 
 # =====================================================
@@ -291,12 +291,12 @@ def task_door_status():
         if closing:
             was_open   = False
             open_since = None
-            led.value  = False          # door is being closed — LED off
+            led.value  = False
             time.sleep(0.5)
             continue
 
         door_open = distance > CLOSED_DISTANCE
-        led.value = door_open           # LED mirrors door state
+        led.value = door_open
 
         if door_open and not was_open:
             was_open   = True
@@ -316,11 +316,7 @@ def task_door_status():
 
 def task_send_temperature():
     while program:
-        url = f"http://{PICO_IP}/?temp={temp}"
-        try:
-            requests.get(url, timeout=5)
-        except Exception:
-            pass
+        client.publish(TOPIC_TEMPERATURE, str(round(temp, 2)))
         time.sleep(cooldown)
 
 def task_door_statusMQTT():
@@ -363,12 +359,11 @@ def task_qr_scan():
             cooldown_done = (time.time() - last_processed_time) >= QR_COOLDOWN_SECS
             if not (cooldown_done and code_left_frame):
                 continue
-            # Cooldown passed and left frame — allow re-scan
             last_processed_qr = None
 
         # ── New valid scan ───────────────────────────────────────────────────
         code_left_frame     = False
-        last_processed_time = time.time()  # moved here so cooldown starts now
+        last_processed_time = time.time()
 
         try:
             product_data = json.loads(data)
