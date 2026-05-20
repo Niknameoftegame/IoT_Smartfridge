@@ -6,6 +6,7 @@ import busio
 from busio import SPI
 import time
 import digitalio
+from gpiozero import OutputDevice
 import requests
 import datetime
 from datetime import date
@@ -28,41 +29,45 @@ class Product():
 # PIN DEFINITIE
 # =====================================================
 
-LED_GPIO      = board.D22
-MOTOR_GPIO    = board.D21
-OLED_DC_GPIO  = board.D24
+LED_GPIO        = board.D6
+MOTOR_GPIO      = board.D21
+OLED_DC_GPIO    = board.D24
 OLED_RESET_GPIO = board.D25
-OLED_CS_GPIO  = board.D5
-TRIG_GPIO     = board.D16
-ECHO_GPIO     = board.D20
+OLED_CS_GPIO    = board.D5
+TRIG_GPIO       = board.D16
+ECHO_GPIO       = board.D20
 
-BTN_IN_GPIO   = board.D19   # knop voor "IN"
-BTN_OUT_GPIO  = board.D26   # knop voor "OUT"
+BTN_IN_GPIO     = board.D19   # knop voor "IN"
+BTN_OUT_GPIO    = board.D26   # knop voor "OUT"
 
 # =====================================================
 # CONSTANTEN
 # =====================================================
 
-CLOSED_DISTANCE    = 15
-MAX_TIME_OPEN      = 30
-PICO_IP            = "192.168.1.171"
-BROKER             = "broker.hivemq.com"
-PORT               = 1883
-TOPIC_COMMAND      = "smart_fridge/door"
-api                = "https://iot-api.vercel.app/"
+CLOSED_DISTANCE     = 13.6
+MAX_TIME_OPEN       = 30
+PICO_IP             = "192.168.1.171"
+BROKER              = "broker.hivemq.com"
+PORT                = 1883
+TOPIC_COMMAND       = "smart_fridge/door"
+api                 = "https://iot-api.vercel.app/"
 days_before_warning = 3
-cooldown           = 5
-distance_cooldown  = 0.5
-TOPIC_DOOR_STATUS = "smart_fridge/door_status"
+cooldown            = 5
+distance_cooldown   = 0.5
+TOPIC_DOOR_STATUS   = "smart_fridge/door_status"
+QR_COOLDOWN_SECS    = 10   # seconds a scanned code stays blocked
+
 # =====================================================
 # GLOBALE VARIABELEN
 # =====================================================
 
-program  = True
-temp     = 0
-distance = 0
-products = []
+program   = True
+temp      = 0
+distance  = 0
+products  = []
 oled_busy = False   # True als QR-scan scherm actief is
+closing   = False   # True while close_door() is actively running
+door_lock = threading.Lock()  # prevents simultaneous close_door() calls
 
 # =====================================================
 # MQTT SETUP
@@ -87,16 +92,15 @@ client.connect(BROKER, PORT, 60)
 # =====================================================
 
 # BMP280
-i2c   = busio.I2C(board.SCL, board.SDA)
+i2c    = busio.I2C(board.SCL, board.SDA)
 bmp280 = adafruit_bmp280.Adafruit_BMP280_I2C(i2c, address=0x77)
 
 # LED
 led = digitalio.DigitalInOut(LED_GPIO)
 led.direction = digitalio.Direction.OUTPUT
 
-# Motor
-Motor = digitalio.DigitalInOut(MOTOR_GPIO)
-Motor.direction = digitalio.Direction.OUTPUT
+# Motor — active_high=False: LOW = motor on, initial_value=False = off at boot
+Motor = OutputDevice(21, active_high=False, initial_value=False)
 
 # Ultrasoon
 trig = digitalio.DigitalInOut(TRIG_GPIO)
@@ -156,9 +160,22 @@ def oled_show_temperature():
 # =====================================================
 
 def close_door():
-    while distance > CLOSED_DISTANCE:
-        Motor.value = True
-    Motor.value = False
+    """
+    Activate motor until the door is closed (distance <= CLOSED_DISTANCE).
+    Lock prevents two threads (MQTT + timer) from running this simultaneously.
+    """
+    global closing
+    if not door_lock.acquire(blocking=False):
+        return   # already closing — ignore duplicate call
+    try:
+        closing = True
+        Motor.on()
+        while distance > CLOSED_DISTANCE and program:
+            time.sleep(0.05)
+        Motor.off()
+    finally:
+        closing = False
+        door_lock.release()
 
 def publish_door_status(open: bool):
     client.publish(TOPIC_DOOR_STATUS, "open" if open else "closed")
@@ -182,7 +199,6 @@ def insert_content(expiration_date, name, warned):
     product.expiration_date = expiration_date
     product.name = name
     product.warned = warned
-
     products.append(product)
     requests.post(api + "insert_content", json={
         "expiration_date": expiration_date,
@@ -263,83 +279,112 @@ def task_measure_distance():
         while echo.value:
             pulse_end = time.time()
 
-
         distance = (pulse_end - pulse_start) * 17000
         print(f"Distance: {distance:.1f} cm")
         time.sleep(distance_cooldown)
 
 def task_door_status():
-    '''Waits for hardcoded time to have passed beforer closing the door (if not already closed)'''
-    seconds = 0
-    while seconds < MAX_TIME_OPEN and distance > CLOSED_DISTANCE:
-        time.sleep(1)
-        seconds += 1
-    if distance > CLOSED_DISTANCE:
-        close_door()
+    was_open   = False
+    open_since = None
 
-#Old code below for debugging if function doesn't work
-#    while program:
-#        if distance > CLOSED_DISTANCE:
-#            Motor.value = False
-#        else:
-#            Motor.value = True
-#        time.sleep(distance_cooldown)
+    while program:
+        if closing:
+            was_open   = False
+            open_since = None
+            led.value  = False          # door is being closed — LED off
+            time.sleep(0.5)
+            continue
 
+        door_open = distance > CLOSED_DISTANCE
+        led.value = door_open           # LED mirrors door state
+
+        if door_open and not was_open:
+            was_open   = True
+            open_since = time.time()
+
+        elif door_open and was_open:
+            if time.time() - open_since >= MAX_TIME_OPEN:
+                close_door()
+                was_open   = False
+                open_since = None
+
+        elif not door_open and was_open:
+            was_open   = False
+            open_since = None
+
+        time.sleep(0.5)
 
 def task_send_temperature():
     while program:
         url = f"http://{PICO_IP}/?temp={temp}"
-        requests.get(url, timeout=5)
+        try:
+            requests.get(url, timeout=5)
+        except Exception:
+            pass
         time.sleep(cooldown)
 
 def task_door_statusMQTT():
     while program:
-        if distance > CLOSED_DISTANCE:
-            publish_door_status(True)
-        else:
-            publish_door_status(False)
+        publish_door_status(distance > CLOSED_DISTANCE)
         time.sleep(1)
 
 def task_qr_scan():
-    """Scant continu op QR-codes en verwerkt ze."""
+    """
+    Scant continu op QR-codes en verwerkt ze.
+
+    A code is blocked from re-scanning until BOTH conditions are true:
+      1. QR_COOLDOWN_SECS (10 s) have passed since the last successful scan.
+      2. The code has physically left the camera frame at least once.
+    This fully prevents scanning the same product twice.
+    """
     global oled_busy
-    last_qr  = None
-    qr_locked = False
+
+    last_processed_qr   = None
+    last_processed_time = 0
+    code_left_frame     = True
 
     while program:
         ret, frame = cap.read()
         if not ret:
             continue
 
-        data, _, _ = detector.detectAndDecode(frame)
+        try:
+            data, _, _ = detector.detectAndDecode(frame)
+        except cv2.error:
+            continue
 
+        # ── No QR in view ───────────────────────────────────────────────────
         if not data:
-            qr_locked = False
-            last_qr   = None
+            code_left_frame = True
             continue
 
-        if qr_locked and data == last_qr:
-            continue
+        # ── Same code as last scan: apply cooldown + must-leave-frame block ─
+        if data == last_processed_qr:
+            cooldown_done = (time.time() - last_processed_time) >= QR_COOLDOWN_SECS
+            if not (cooldown_done and code_left_frame):
+                continue
+            # Cooldown passed and left frame — allow re-scan
+            last_processed_qr = None
 
-        qr_locked = True
-        last_qr   = data
+        # ── New valid scan ───────────────────────────────────────────────────
+        code_left_frame     = False
+        last_processed_time = time.time()  # moved here so cooldown starts now
 
         try:
             product_data = json.loads(data)
+            oled_busy = True
 
-            oled_busy = True  # blokkeer temperatuur op scherm
-
-            action = wait_button()  # toont "IN or OUT?" op OLED
+            action = wait_button()
 
             oled_show("Processing...", product_data["product"], action)
             success = send_to_api(product_data, action)
 
             if success:
                 oled_show("SUCCESS", product_data["product"], action)
+                last_processed_qr = data
             else:
                 oled_show("API ERROR")
-
-            time.sleep(2)
+                last_processed_qr = None  # allow retry on API error
 
         except Exception as e:
             oled_show("Invalid QR")
@@ -347,19 +392,18 @@ def task_qr_scan():
             time.sleep(2)
 
         finally:
-            oled_busy = False  # geef scherm terug aan temperatuur
-        
+            oled_busy = False
 
 # =====================================================
 # START THREADS
 # =====================================================
 
-t_read_temp       = threading.Thread(target=task_read_temp,       daemon=True)
-t_measure_distance = threading.Thread(target=task_measure_distance, daemon=True)
-t_door_status     = threading.Thread(target=task_door_status,     daemon=True)
-t_qr_scan         = threading.Thread(target=task_qr_scan,         daemon=True)
-t_send_temperature = threading.Thread(target=task_send_temperature, daemon=True)
-t_door_statusMQTT = threading.Thread(target=task_door_statusMQTT, daemon=True)
+t_read_temp        = threading.Thread(target=task_read_temp,        daemon=True)
+t_measure_distance = threading.Thread(target=task_measure_distance,  daemon=True)
+t_door_status      = threading.Thread(target=task_door_status,       daemon=True)
+t_qr_scan          = threading.Thread(target=task_qr_scan,           daemon=True)
+t_send_temperature = threading.Thread(target=task_send_temperature,  daemon=True)
+t_door_statusMQTT  = threading.Thread(target=task_door_statusMQTT,   daemon=True)
 
 t_read_temp.start()
 t_measure_distance.start()
@@ -372,7 +416,9 @@ t_door_statusMQTT.start()
 # =====================================================
 # MAIN LOOP
 # =====================================================
+
 get_content()
+
 try:
     while program:
         for product in products:
@@ -385,14 +431,29 @@ try:
         time.sleep(cooldown)
 
 except KeyboardInterrupt:
-    program = False
-    Motor.value = False
-    led.value = False
-    t_read_temp.join()
-    t_measure_distance.join()
-    t_door_status.join()
-    t_qr_scan.join()
-    t_send_temperature.join()
-    t_door_statusMQTT.join()
-    cap.release()
-    oled_show("Goodbye!")
+    pass
+
+finally:
+    try:
+        program = False
+
+        Motor.off()
+        Motor.close()
+        led.value = False
+
+        cap.release()
+
+        client.loop_stop()
+        client.disconnect()
+
+        t_read_temp.join(timeout=3)
+        t_measure_distance.join(timeout=3)
+        t_door_status.join(timeout=3)
+        t_qr_scan.join(timeout=3)
+        t_send_temperature.join(timeout=3)
+        t_door_statusMQTT.join(timeout=3)
+
+        oled_show("Goodbye!")
+    except KeyboardInterrupt:
+        # Second Ctrl+C during cleanup — hardware already safe, just exit
+        pass
