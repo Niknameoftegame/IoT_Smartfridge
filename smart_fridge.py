@@ -15,9 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import json
 
-# =====================================================
-# PRODUCT CLASS
-# =====================================================
+# CLASSES
 
 class Product():
     expiration_date: date
@@ -25,9 +23,7 @@ class Product():
     warned: bool
     expired: bool
 
-# =====================================================
-# PIN DEFINITIE
-# =====================================================
+# PIN DEFINITIONS
 
 LED_GPIO        = board.D6
 MOTOR_GPIO      = board.D21
@@ -37,42 +33,40 @@ OLED_CS_GPIO    = board.D5
 TRIG_GPIO       = board.D16
 ECHO_GPIO       = board.D20
 
-BTN_IN_GPIO     = board.D19   # knop voor "IN"
-BTN_OUT_GPIO    = board.D26   # knop voor "OUT"
+BTN_IN_GPIO     = board.D19   # button for "IN"
+BTN_OUT_GPIO    = board.D26   # button for "OUT"
 
-# =====================================================
-# CONSTANTEN
-# =====================================================
+# CONSTANTS
 
 CLOSED_DISTANCE     = 14
 MAX_TIME_OPEN       = 30
-BROKER              = "broker.hivemq.com"
-PORT                = 1883
-TOPIC_COMMAND       = "smart_fridge/door"
-TOPIC_DOOR_STATUS   = "smart_fridge/door_status"
-TOPIC_TEMPERATURE = "smart_fridge_2026/senne_lode_xander_matteo/temperatuur"
-PICO_IP = "192.168.1.171"
-api                 = "https://iot-api.vercel.app/"
+
 days_before_warning = 3
 cooldown            = 5
 distance_cooldown   = 0.5
 QR_COOLDOWN_SECS    = 10   # seconds a scanned code stays blocked
 
-# =====================================================
-# GLOBALE VARIABELEN
-# =====================================================
+BROKER              = "broker.hivemq.com" # MQTT Credentials
+PORT                = 1883
+TOPIC_COMMAND       = "smart_fridge/door"
+TOPIC_DOOR_STATUS   = "smart_fridge/door_status"
+TOPIC_TEMPERATURE = "smart_fridge_2026/senne_lode_xander_matteo/temperatuur"
+
+PICO_IP = "192.168.1.171" #IP for PICO
+
+api                 = "https://iot-api.vercel.app/" #API Link
+
+# GLOBAL VARIABLES
 
 program   = True
 temp      = 0
 distance  = 0
 products  = []
-oled_busy = False   # True als QR-scan scherm actief is
+oled_busy = False   # True when QR Screen is activate
 closing   = False   # True while close_door() is actively running
 door_lock = threading.Lock()  # prevents simultaneous close_door() calls
 
-# =====================================================
 # MQTT SETUP
-# =====================================================
 
 def on_connect(client, userdata, flags, rc, properties):
     print("Connected to MQTT")
@@ -88,9 +82,7 @@ client.on_connect = on_connect
 client.on_message = on_message
 client.connect(BROKER, PORT, 60)
 
-# =====================================================
 # HARDWARE SETUP
-# =====================================================
 
 # BMP280
 i2c    = busio.I2C(board.SCL, board.SDA)
@@ -103,7 +95,7 @@ led.direction = digitalio.Direction.OUTPUT
 # Motor — active_high=False: LOW = motor on, initial_value=False = off at boot
 Motor = OutputDevice(21, active_high=False, initial_value=False)
 
-# Ultrasoon
+# Ultrasonic sensor
 trig = digitalio.DigitalInOut(TRIG_GPIO)
 trig.direction = digitalio.Direction.OUTPUT
 trig.value = False
@@ -111,7 +103,7 @@ trig.value = False
 echo = digitalio.DigitalInOut(ECHO_GPIO)
 echo.direction = digitalio.Direction.INPUT
 
-# Knoppen
+# Buttons
 btn_in = digitalio.DigitalInOut(BTN_IN_GPIO)
 btn_in.direction = digitalio.Direction.INPUT
 btn_in.pull = digitalio.Pull.UP
@@ -135,12 +127,10 @@ font  = ImageFont.load_default()
 cap      = cv2.VideoCapture(0)
 detector = cv2.QRCodeDetector()
 
-# =====================================================
-# OLED FUNCTIES
-# =====================================================
+# OLED FUNCTIONS
 
 def oled_show(l1="", l2="", l3=""):
-    """Toon 3 regels tekst op het OLED scherm."""
+    """Display 3 lines on OLED"""
     draw.rectangle((0, 0, 128, 64), outline=0, fill=0)
     draw.text((0,  0), l1, font=font, fill=255)
     draw.text((0, 20), l2, font=font, fill=255)
@@ -149,16 +139,14 @@ def oled_show(l1="", l2="", l3=""):
     oled.show()
 
 def oled_show_temperature():
-    """Toon temperatuur — alleen als OLED niet bezet is door QR-scan."""
+    """Show temperature when OLED is not busy with QR."""
     if not oled_busy:
         draw.rectangle((0, 0, 128, 64), outline=0, fill=0)
         draw.text((10, 20), f"{round(temp, 2)}°C", font=font, fill=255)
         oled.image(image)
         oled.show()
 
-# =====================================================
-# DEUR / MOTOR FUNCTIES
-# =====================================================
+# DOOR / MOTOR FUNCTIONS
 
 def close_door():
     """
@@ -181,12 +169,11 @@ def close_door():
 def publish_door_status(open: bool):
     client.publish(TOPIC_DOOR_STATUS, "open" if open else "closed")
 
-# =====================================================
-# PRODUCT / API FUNCTIES
-# =====================================================
+# PRODUCT / API FUNCTIONS
 
 def get_content():
     response = requests.get(api + "get_content")
+    # Create an object of every returned product and add it to the list of products.
     for p in response.json():
         product = Product()
         product.expiration_date = p[2]
@@ -196,6 +183,7 @@ def get_content():
         products.append(product)
 
 def insert_content(expiration_date, name, warned):
+    #Create an object with the given values and post it to the API
     product = Product()
     product.expiration_date = expiration_date
     product.name = name
@@ -209,25 +197,30 @@ def insert_content(expiration_date, name, warned):
 
 def remove_product(product):
     products.remove(product)
+    #Remove a product from the database based on the name and expiration date.
     requests.post(api + "remove_content", json={
         "name": product.name,
         "expiration_date": product.expiration_date
     })
 
 def send_warning(product):
+    #If there are a certain amount of days left, send a warning via an API request to ntfy.
     days_left = (datetime.date.fromisoformat(product.expiration_date) - datetime.date.today()).days
     message = f"{product.name} expires in {days_left} days"
     requests.post(f"https://ntfy.sh/smart_fridge", data=message.encode('utf-8'))
     product.warned = True
+    #Set warned true in the database for this product.
     requests.post(api + "warned_true", json={
         "name": product.name,
         "expiration_date": product.expiration_date
     })
 
 def product_expire(product):
+    #When a product expires send a message via an API request and remove the product from the database.
     message = f"ALERT: {product.name} has expired!"
     requests.post(f"https://ntfy.sh/smart_fridge", data=message.encode('utf-8'))
     product.expired = True
+    products.remove(product)
     requests.post(api + "expired_true", json={
         "name": product.name,
         "expiration_date": product.expiration_date
@@ -242,12 +235,12 @@ def send_to_api(product_data, action):
     r = requests.post(api + endpoint, json=payload, timeout=5)
     return r.status_code == 200
 
-# =====================================================
-# QR KNOP FUNCTIE
-# =====================================================
+# QR KNOP FUNCTION
 
 def wait_button():
-    oled_show("IN or OUT?", "D19 = IN", "D26 = OUT")
+    #ASK FOR IN OR OUT ON THE OLED
+    #RETURN CHOSEN VALUE FOR FURTHER ACITONS
+    oled_show("IN or OUT?", "LEFT = IN", "RIGHT = OUT")
     while True:
         if not btn_in.value:
             time.sleep(0.2)
@@ -256,17 +249,17 @@ def wait_button():
             time.sleep(0.2)
             return "OUT"
 
-# =====================================================
 # THREADS
-# =====================================================
 
 def task_read_temp():
+    #Read the temperature with the bmp280 sensor.
     while program:
         global temp
         temp = bmp280.temperature
         time.sleep(cooldown)
 
 def task_measure_distance():
+    #Send a pulse and calculate the distance.
     global distance
     while program:
         trig.value = False
@@ -285,6 +278,7 @@ def task_measure_distance():
         time.sleep(distance_cooldown)
 
 def task_door_status():
+    #Checks if door is open for too long, and closes if it is.
     was_open   = False
     open_since = None
 
@@ -316,24 +310,26 @@ def task_door_status():
         time.sleep(0.5)
 
 def task_send_temperature():
+    #Send the temperature to the PICO
    while program:
        url = f"http://{PICO_IP}/?temp={temp}"
        requests.get(url, timeout=5)
        time.sleep(cooldown)
 
 def task_door_statusMQTT():
+    #Publish the status of the door to MQTT.
     while program:
         publish_door_status(distance > CLOSED_DISTANCE)
         time.sleep(1)
 
 def task_qr_scan():
     """
-    Scant continu op QR-codes en verwerkt ze.
+    Scans for QR codes continuously
 
-    A code is blocked from re-scanning until BOTH conditions are true:
-      1. QR_COOLDOWN_SECS (10 s) have passed since the last successful scan.
-      2. The code has physically left the camera frame at least once.
-    This fully prevents scanning the same product twice.
+    A code is blocked from re-scanning until these conditions are true:
+      1. QR_COOLDOWN_SECS have passed since the last scan.
+      2. The code has left the camera frame at least once.
+    This prevents scanning the same product twice.
     """
     global oled_busy
 
@@ -351,19 +347,19 @@ def task_qr_scan():
         except cv2.error:
             continue
 
-        # ── No QR in view ───────────────────────────────────────────────────
+        # No QR in view
         if not data:
             code_left_frame = True
             continue
 
-        # ── Same code as last scan: apply cooldown + must-leave-frame block ─
+        # Same code as last scan: apply cooldown + must-leave-frame block
         if data == last_processed_qr:
             cooldown_done = (time.time() - last_processed_time) >= QR_COOLDOWN_SECS
             if not (cooldown_done and code_left_frame):
                 continue
             last_processed_qr = None
 
-        # ── New valid scan ───────────────────────────────────────────────────
+        #  New valid scan
         code_left_frame     = False
         last_processed_time = time.time()
 
@@ -391,9 +387,7 @@ def task_qr_scan():
         finally:
             oled_busy = False
 
-# =====================================================
 # START THREADS
-# =====================================================
 
 t_read_temp        = threading.Thread(target=task_read_temp,        daemon=True)
 t_measure_distance = threading.Thread(target=task_measure_distance,  daemon=True)
@@ -410,21 +404,18 @@ t_qr_scan.start()
 client.loop_start()
 t_door_statusMQTT.start()
 
-# =====================================================
 # MAIN LOOP
-# =====================================================
 
-get_content()
+get_content() # Load all products from the database
 
 try:
-    while program:
-        for product in products:
+    while program: #While program is running
+        for product in products: #For every product check if it is expiring soon or has expired and do actions based on that.
             if (datetime.date.fromisoformat(product.expiration_date) - datetime.date.today()) <= datetime.timedelta(days=days_before_warning) and not product.warned:
                 send_warning(product)
             elif datetime.date.fromisoformat(product.expiration_date) < datetime.date.today() and not product.expired:
                 product_expire(product)
-
-        oled_show_temperature()
+        oled_show_temperature() #Update temperature on OLED
         time.sleep(cooldown)
 
 except KeyboardInterrupt:
@@ -432,6 +423,7 @@ except KeyboardInterrupt:
 
 finally:
     try:
+        #Shut down program and do cleanup
         program = False
 
         Motor.off()
