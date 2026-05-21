@@ -51,6 +51,7 @@ PORT                = 1883
 TOPIC_COMMAND       = "smart_fridge/door"
 TOPIC_DOOR_STATUS   = "smart_fridge/door_status"
 TOPIC_TEMPERATURE = "smart_fridge_2026/senne_lode_xander_matteo/temperatuur"
+PICO_IP = "192.168.1.171"
 api                 = "https://iot-api.vercel.app/"
 days_before_warning = 3
 cooldown            = 5
@@ -315,9 +316,10 @@ def task_door_status():
         time.sleep(0.5)
 
 def task_send_temperature():
-    while program:
-        client.publish(TOPIC_TEMPERATURE, str(round(temp, 2)))
-        time.sleep(cooldown)
+   while program:
+       url = f"http://{PICO_IP}/?temp={temp}"
+       requests.get(url, timeout=5)
+       time.sleep(cooldown)
 
 def task_door_statusMQTT():
     while program:
