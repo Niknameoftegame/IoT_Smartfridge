@@ -182,27 +182,6 @@ def get_content():
         product.expired = p[4]
         products.append(product)
 
-def insert_content(expiration_date, name, warned):
-    #Create an object with the given values and post it to the API
-    product = Product()
-    product.expiration_date = expiration_date
-    product.name = name
-    product.warned = warned
-    products.append(product)
-    requests.post(api + "insert_content", json={
-        "expiration_date": expiration_date,
-        "name": name,
-        "warned": warned
-    })
-
-def remove_product(product):
-    products.remove(product)
-    #Remove a product from the database based on the name and expiration date.
-    requests.post(api + "remove_content", json={
-        "name": product.name,
-        "expiration_date": product.expiration_date
-    })
-
 def send_warning(product):
     #If there are a certain amount of days left, send a warning via an API request to ntfy.
     days_left = (datetime.date.fromisoformat(product.expiration_date) - datetime.date.today()).days
@@ -227,6 +206,7 @@ def product_expire(product):
     })
 
 def send_to_api(product_data, action):
+    # Do an API request based on the choice made by the user.
     payload = {
         "name": product_data["product"],
         "expiration_date": product_data["expiry"]
@@ -338,46 +318,62 @@ def task_qr_scan():
     code_left_frame     = True
 
     while program:
+        # Capture a frame from the camera
         ret, frame = cap.read()
+
+        # Skip loop if frame capture failed
         if not ret:
             continue
 
         try:
+            # Detect and decode QR code from the frame
             data, _, _ = detector.detectAndDecode(frame)
+
+        # Ignore OpenCV detection errors
         except cv2.error:
             continue
 
-        # No QR in view
+        # No QR code detected in the frame
         if not data:
             code_left_frame = True
             continue
 
-        # Same code as last scan: apply cooldown + must-leave-frame block
+        # If the scanned QR is the same as the previous one
         if data == last_processed_qr:
+
+            # Check if cooldown time has passed
             cooldown_done = (time.time() - last_processed_time) >= QR_COOLDOWN_SECS
+
+            # Ignore repeated scans until:
+            # 1. cooldown finished
+            # 2. QR code left the frame at least once
             if not (cooldown_done and code_left_frame):
                 continue
+
             last_processed_qr = None
 
-        #  New valid scan
-        code_left_frame     = False
+        code_left_frame = False
+
         last_processed_time = time.time()
 
         try:
             product_data = json.loads(data)
             oled_busy = True
-
             action = wait_button()
-
             oled_show("Processing...", product_data["product"], action)
+
+            #Do an API request based on the choice made by the user
             success = send_to_api(product_data, action)
 
             if success:
+
                 oled_show("SUCCESS", product_data["product"], action)
+
                 last_processed_qr = data
+
             else:
                 oled_show("API ERROR")
-                last_processed_qr = None  # allow retry on API error
+                last_processed_qr = None
 
         except Exception as e:
             oled_show("Invalid QR")
@@ -385,6 +381,7 @@ def task_qr_scan():
             time.sleep(2)
 
         finally:
+
             oled_busy = False
 
 # START THREADS
